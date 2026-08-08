@@ -3,7 +3,7 @@
   xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
 
-  <groupId>com.hawk</groupId>
+  <groupId>hawk.gr</groupId>
   <artifactId>hawk-gr</artifactId>
   <version>1.0-SNAPSHOT</version>
 
@@ -22,16 +22,24 @@
   </dependencyManagement>
 
   <dependencies>
+    <!-- Source: https://mvnrepository.com/artifact/com.microsoft.onnxruntime/onnxruntime -->
     <dependency>
-      <groupId>com.microsoft.onnxruntime</groupId>
-      <artifactId>onnxruntime</artifactId>
-      <version>1.17.3</version> <!-- 请使用最新版本 -->
+        <groupId>com.microsoft.onnxruntime</groupId>
+        <artifactId>onnxruntime</artifactId>
+        <version>1.26.0</version>
+        <scope>compile</scope>
     </dependency>
 
     <dependency>
       <groupId>ai.djl.huggingface</groupId>
       <artifactId>tokenizers</artifactId>
-      <version>0.27.0</version> <!-- 建议使用最新版本 -->
+      <version>0.36.0</version>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+      <version>3.4.0</version>
     </dependency>
   </dependencies>
 
