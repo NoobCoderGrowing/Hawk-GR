@@ -1,0 +1,6 @@
+编辑配置文件：在你的用户主目录下找到并编辑 ~/.claude.json
+添加配置项：在文件中新增以下内容
+
+{
+  "hasCompletedOnboarding": true
+}
