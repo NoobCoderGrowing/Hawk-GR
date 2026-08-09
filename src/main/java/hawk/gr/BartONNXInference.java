@@ -3,37 +3,33 @@ package hawk.gr;
 import ai.djl.huggingface.tokenizers.Encoding;
 import ai.djl.huggingface.tokenizers.HuggingFaceTokenizer;
 import ai.onnxruntime.*;
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
 import java.nio.file.*;
 import java.util.*;
 
 /**
- * BART ONNX 推理引擎。
- *
- * 使用方式:
- *   BartONNXInference engine = new BartONNXInference("model");
- *   String result = engine.generate("今天天气很好");
+ * Spring Boot 命令行应用：读取用户输入，输出 BART encoder 和 decoder 的推理结果。
  */
-public class BartONNXInference implements AutoCloseable {
+@SpringBootApplication
+public class BartONNXInference implements CommandLineRunner, AutoCloseable {
 
     private final OrtEnvironment env;
     private final OrtSession encoderSession;
     private final OrtSession decoderSession;
     private final HuggingFaceTokenizer tokenizer;
 
-    // 特殊 token id (来自 config.json)
-    private static final int EOS_TOKEN_ID = 102;         // [SEP]
+    private static final int EOS_TOKEN_ID = 102;
     private static final int DECODER_START_TOKEN_ID = 102;
-    private static final int MAX_LENGTH = 128;
+    private static final int FIXED_SEQ_LEN = 64;
 
-    public BartONNXInference(String modelDir) throws Exception {
-        Path dir = Paths.get(modelDir);
+    public BartONNXInference() throws Exception {
+        Path dir = Paths.get("model");
 
-        // 加载 HuggingFace tokenizer
-        tokenizer = HuggingFaceTokenizer.newInstance(
-            dir.resolve("tokenizer.json")
-        );
+        tokenizer = HuggingFaceTokenizer.newInstance(dir.resolve("tokenizer.json"));
 
-        // 加载 ONNX 模型
         env = OrtEnvironment.getEnvironment();
         OrtSession.SessionOptions opts = new OrtSession.SessionOptions();
         opts.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.BASIC_OPT);
@@ -42,131 +38,192 @@ public class BartONNXInference implements AutoCloseable {
         decoderSession = env.createSession(dir.resolve("bart_decoder.onnx").toString(), opts);
     }
 
-    // ==================== 对外接口 ====================
+    // ==================== 公开 API ====================
 
-    /** 单条文本生成 */
-    public String generate(String text) throws OrtException {
-        return generate(text, MAX_LENGTH);
-    }
-
-    private static final int FIXED_SEQ_LEN = 64;  // 和 ONNX 导出时一致
-
-    /** 单条文本生成 (指定最大长度) */
-    public String generate(String text, int maxLen) throws OrtException {
-        // 1. Tokenize
+    /** 对输入文本做 encoder，返回 hidden states (1, seq_len, d_model) */
+    public float[][][] encode(String text) throws OrtException {
         Encoding encoding = tokenizer.encode(text);
-        long[] rawIds = encoding.getIds();
-        long[] rawMask = encoding.getAttentionMask();
+        long[] inputIds = pad(encoding.getIds());
+        long[] attentionMask = pad(encoding.getAttentionMask());
 
-        // 2. Pad 到固定长度 64（ONNX 导出时的序列长度）
-        long[] inputIds = new long[FIXED_SEQ_LEN];
-        long[] attentionMask = new long[FIXED_SEQ_LEN];
-        int copyLen = Math.min(rawIds.length, FIXED_SEQ_LEN);
-        System.arraycopy(rawIds, 0, inputIds, 0, copyLen);
-        System.arraycopy(rawMask, 0, attentionMask, 0, copyLen);
-
-        // 3. Encoder
-        long[][] batchInputIds = {inputIds};
-        long[][] batchMask = {attentionMask};
-        float[][][] encoderOutput = runEncoder(batchInputIds, batchMask);
-
-        // 4. Decoder auto-regressive
-        long[][] generated = greedyDecode(encoderOutput, batchMask, maxLen);
-
-        // 5. Detokenize
-        return tokenizer.decode(generated[0]);
+        return runEncoder(new long[][]{inputIds}, new long[][]{attentionMask});
     }
 
-    // ==================== Encoder ====================
+    /**
+     * 单步 decoder：输入当前 token 和 encoder 输出，返回 logits。
+     * @param tokenId 当前步的 token id
+     * @param encoderHidden encoder 输出 (1, seq_len, d_model)
+     * @param encoderMask encoder 的 attention mask (1, seq_len)
+     * @return logits (1, 1, vocab_size)
+     */
+    public float[][][] decodeStep(long tokenId, float[][][] encoderHidden,
+                                   long[][] encoderMask) throws OrtException {
+        return runDecoder(new long[][]{{tokenId}}, encoderHidden, encoderMask);
+    }
+
+    // ==================== Spring Boot CLI ====================
+
+    @Override
+    public void run(String... args) throws Exception {
+        System.out.println("=".repeat(60));
+        System.out.println("  BART ONNX 推理 — 输入文本，查看 encoder/decoder 输出");
+        System.out.println("  输入 'exit' 退出");
+        System.out.println("=".repeat(60));
+
+        try (Scanner scanner = new Scanner(System.in)) {
+            while (true) {
+                System.out.print("\n> ");
+                String text = scanner.nextLine().trim();
+                if (text.isEmpty()) continue;
+                if ("exit".equalsIgnoreCase(text)) break;
+
+                try {
+                    // 1. Tokenize
+                    Encoding encoding = tokenizer.encode(text);
+                    long[] rawIds = encoding.getIds();
+                    long[] rawMask = encoding.getAttentionMask();
+                    System.out.println("\n[Tokenizer]");
+                    System.out.printf("  tokens: %s%n", Arrays.toString(encoding.getTokens()));
+                    System.out.printf("  ids   : %s%n", Arrays.toString(rawIds));
+
+                    long[] inputIds = pad(rawIds);
+                    long[] attentionMask = pad(rawMask);
+
+                    // 2. Encoder
+                    long t0 = System.currentTimeMillis();
+                    float[][][] encHidden = runEncoder(
+                        new long[][]{inputIds}, new long[][]{attentionMask});
+                    long t1 = System.currentTimeMillis();
+                    int dModel = encHidden[0][0].length;
+
+                    System.out.println("\n[Encoder Output]");
+                    System.out.printf("  shape      : (1, %d, %d)%n", FIXED_SEQ_LEN, dModel);
+                    System.out.printf("  time       : %d ms%n", t1 - t0);
+                    System.out.printf("  mean       : %.6f%n", mean(encHidden[0]));
+                    System.out.printf("  std        : %.6f%n", std(encHidden[0]));
+                    System.out.printf("  first token: [%.4f, %.4f, %.4f, ...]%n",
+                        encHidden[0][0][0], encHidden[0][0][1], encHidden[0][0][2]);
+
+                    // 3. Decoder — 逐步输出每一步的 top-5 token
+                    System.out.println("\n[Decoder Steps]");
+                    long tokenId = DECODER_START_TOKEN_ID;
+                    List<Long> generated = new ArrayList<>();
+                    generated.add(tokenId);
+
+                    for (int step = 0; step < 20; step++) {  // 最多 20 步
+                        long t2 = System.currentTimeMillis();
+                        float[][][] logits = runDecoder(
+                            new long[][]{{tokenId}}, encHidden,
+                            new long[][]{attentionMask});
+                        long t3 = System.currentTimeMillis();
+
+                        // 取 top-5
+                        float[] stepLogits = logits[0][0];
+                        int[] top5Idx = topK(stepLogits, 5);
+                        long nextToken = top5Idx[0];  // greedy
+
+                        System.out.printf("  step %2d | token=%-6s (id=%d) | top-5: ",
+                            step + 1,
+                            tokenToStr(tokenId), tokenId);
+                        for (int k = 0; k < 5; k++) {
+                            int tid = top5Idx[k];
+                            float prob = (float) Math.exp(stepLogits[tid]);
+                            System.out.printf("%s(%.3f) ", tokenToStr(tid), prob);
+                        }
+                        System.out.printf("| %d ms%n", t3 - t2);
+
+                        if (nextToken == EOS_TOKEN_ID) {
+                            System.out.println("  → 遇到 [SEP]，解码结束");
+                            break;
+                        }
+                        tokenId = nextToken;
+                        generated.add(tokenId);
+                    }
+
+                    // 4. 最终结果
+                    String decoded = tokenizer.decode(
+                        generated.stream().mapToLong(Long::longValue).toArray());
+                    System.out.printf("%n[生成结果] %s%n", decoded);
+
+                } catch (Exception e) {
+                    System.err.println("ERROR: " + e.getMessage());
+                    e.printStackTrace();
+                }
+            }
+        }
+        System.out.println("Bye!");
+    }
+
+    // ==================== 模型推理 ====================
 
     private float[][][] runEncoder(long[][] inputIds, long[][] attentionMask) throws OrtException {
-        try (OnnxTensor inputTensor = OnnxTensor.createTensor(env, inputIds);
-             OnnxTensor maskTensor = OnnxTensor.createTensor(env, attentionMask)) {
-
+        try (OnnxTensor in = OnnxTensor.createTensor(env, inputIds);
+             OnnxTensor mask = OnnxTensor.createTensor(env, attentionMask)) {
             Map<String, OnnxTensor> inputs = new HashMap<>();
-            inputs.put("input_ids", inputTensor);
-            inputs.put("attention_mask", maskTensor);
-
-            OrtSession.Result result = encoderSession.run(inputs);
-            float[][][] hidden = (float[][][]) result.get(0).getValue();
-            result.close();
-            return hidden;
+            inputs.put("input_ids", in);
+            inputs.put("attention_mask", mask);
+            OrtSession.Result r = encoderSession.run(inputs);
+            float[][][] out = (float[][][]) r.get(0).getValue();
+            r.close();
+            return out;
         }
     }
 
-    // ==================== Decoder (auto-regressive) ====================
-
-    private long[][] greedyDecode(float[][][] encoderHidden, long[][] encoderMask,
-                                   int maxLen) throws OrtException {
-        int batchSize = encoderHidden.length;
-        boolean[] finished = new boolean[batchSize];
-
-        // 每个样本的已生成 token 序列 (从 decoder_start_token_id 开始)
-        List<List<Long>> sequences = new ArrayList<>();
-        for (int i = 0; i < batchSize; i++) {
-            List<Long> seq = new ArrayList<>();
-            seq.add((long) DECODER_START_TOKEN_ID);
-            sequences.add(seq);
+    private float[][][] runDecoder(long[][] tokenIds, float[][][] encHidden,
+                                    long[][] encMask) throws OrtException {
+        try (OnnxTensor decIn = OnnxTensor.createTensor(env, tokenIds);
+             OnnxTensor encH = OnnxTensor.createTensor(env, encHidden);
+             OnnxTensor encM = OnnxTensor.createTensor(env, encMask)) {
+            Map<String, OnnxTensor> inputs = new HashMap<>();
+            inputs.put("input_ids", decIn);
+            inputs.put("encoder_hidden_states", encH);
+            inputs.put("encoder_attention_mask", encM);
+            OrtSession.Result r = decoderSession.run(inputs);
+            float[][][] out = (float[][][]) r.get(0).getValue();
+            r.close();
+            return out;
         }
+    }
 
-        for (int step = 0; step < maxLen; step++) {
-            // 构建当前步的 decoder 输入: (batch, 1)
-            long[][] decoderInputIds = new long[batchSize][1];
-            int activeCount = 0;
-            for (int i = 0; i < batchSize; i++) {
-                if (!finished[i]) {
-                    List<Long> seq = sequences.get(i);
-                    decoderInputIds[i][0] = seq.get(seq.size() - 1);
-                    activeCount++;
-                }
-            }
-            if (activeCount == 0) break;
+    // ==================== 工具方法 ====================
 
-            try (OnnxTensor decInput = OnnxTensor.createTensor(env, decoderInputIds);
-                 OnnxTensor encHidden = OnnxTensor.createTensor(env, encoderHidden);
-                 OnnxTensor encMask = OnnxTensor.createTensor(env, encoderMask)) {
+    private long[] pad(long[] arr) {
+        long[] padded = new long[FIXED_SEQ_LEN];
+        System.arraycopy(arr, 0, padded, 0, Math.min(arr.length, FIXED_SEQ_LEN));
+        return padded;
+    }
 
-                Map<String, OnnxTensor> inputs = new HashMap<>();
-                inputs.put("input_ids", decInput);
-                inputs.put("encoder_hidden_states", encHidden);
-                inputs.put("encoder_attention_mask", encMask);
-
-                OrtSession.Result result = decoderSession.run(inputs);
-                float[][][] logits = (float[][][]) result.get(0).getValue();
-                result.close();
-
-                for (int i = 0; i < batchSize; i++) {
-                    if (finished[i]) continue;
-                    float[] lastLogits = logits[i][0];
-                    long nextToken = argmax(lastLogits);
-
-                    if (nextToken == EOS_TOKEN_ID) {
-                        finished[i] = true;
-                    } else {
-                        sequences.get(i).add(nextToken);
-                    }
-                }
-            }
+    private double mean(float[][] matrix) {
+        double sum = 0;
+        int count = 0;
+        for (float[] row : matrix) {
+            for (float v : row) { sum += v; count++; }
         }
+        return sum / count;
+    }
 
-        long[][] result = new long[batchSize][];
-        for (int i = 0; i < batchSize; i++) {
-            List<Long> seq = sequences.get(i);
-            result[i] = seq.stream().mapToLong(Long::longValue).toArray();
+    private double std(float[][] matrix) {
+        double m = mean(matrix);
+        double sumSq = 0;
+        int count = 0;
+        for (float[] row : matrix) {
+            for (float v : row) { sumSq += Math.pow(v - m, 2); count++; }
         }
+        return Math.sqrt(sumSq / count);
+    }
+
+    private int[] topK(float[] array, int k) {
+        Integer[] indices = new Integer[array.length];
+        for (int i = 0; i < array.length; i++) indices[i] = i;
+        Arrays.sort(indices, Comparator.comparingDouble(i -> -array[(int) i]));
+        int[] result = new int[k];
+        for (int i = 0; i < k; i++) result[i] = indices[i];
         return result;
     }
 
-    private long argmax(float[] array) {
-        int bestIdx = 0;
-        float bestVal = array[0];
-        for (int i = 1; i < array.length; i++) {
-            if (array[i] > bestVal) {
-                bestIdx = i;
-                bestVal = array[i];
-            }
-        }
-        return bestIdx;
+    private String tokenToStr(long id) {
+        String token = tokenizer.decode(new long[]{id});
+        return token.isEmpty() ? "[" + id + "]" : token;
     }
 
     @Override
@@ -176,13 +233,7 @@ public class BartONNXInference implements AutoCloseable {
         env.close();
     }
 
-    // ==================== 测试入口 ====================
-    public static void main(String[] args) throws Exception {
-        try (BartONNXInference engine = new BartONNXInference("model")) {
-            String text = "今天天气很好";
-            System.out.println("Input : " + text);
-            String result = engine.generate(text);
-            System.out.println("Output: " + result);
-        }
+    public static void main(String[] args) {
+        SpringApplication.run(BartONNXInference.class, args);
     }
 }
