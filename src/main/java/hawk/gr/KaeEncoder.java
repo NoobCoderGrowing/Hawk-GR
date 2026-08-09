@@ -162,12 +162,16 @@ public class KaeEncoder {
         return colon > 0 ? attribute.substring(colon + 1) : attribute;
     }
 
-    /** Look up the best matching index for a position's values. Uses the first match. */
+    /** Look up the best matching index for a position's values. Picks the smallest index
+     *  (more frequent/common entities have smaller indices in the codebook). */
     private int lookupBest(String pos, List<String> values) {
+        int best = Integer.MAX_VALUE;
         for (String value : values) {
             Integer idx = config.lookupIndex(pos, value);
-            if (idx != null) return idx;
+            if (idx != null && idx < best) {
+                best = idx;
+            }
         }
-        return config.emptySlot();
+        return best == Integer.MAX_VALUE ? config.emptySlot() : best;
     }
 }

@@ -61,6 +61,66 @@ public class BartONNXInference implements CommandLineRunner, AutoCloseable {
         return runDecoder(new long[][]{{tokenId}}, encoderHidden, encoderMask);
     }
 
+    /**
+     * Greedy autoregressive generation (encoder → decoder loop).
+     *
+     * @param text     input text
+     * @param maxSteps max decoder steps (default 64 for SID generation)
+     * @return generated token IDs
+     */
+    public long[] generate(String text, int maxSteps) throws OrtException {
+        Encoding encoding = tokenizer.encode(text);
+        long[] inputIds = pad(encoding.getIds());
+        long[] encMask = pad(encoding.getAttentionMask());  // use REAL mask!
+
+        float[][][] encHidden = runEncoder(
+            new long[][]{inputIds}, new long[][]{encMask});
+
+        List<Long> generated = new ArrayList<>();
+        generated.add((long) DECODER_START_TOKEN_ID);
+
+        for (int step = 0; step < maxSteps; step++) {
+            // Pass the FULL generated sequence — BART decoder needs
+            // all previous tokens for causal self-attention.
+            long[] inputSeq = generated.stream().mapToLong(Long::longValue).toArray();
+            float[][][] logits = runDecoder(
+                new long[][]{inputSeq}, encHidden, new long[][]{encMask});
+
+            // Take LAST position's logits (next-token prediction)
+            float[] stepLogits = logits[0][logits[0].length - 1];
+            long nextToken = argmax(stepLogits);
+            generated.add(nextToken);
+
+            if (nextToken == EOS_TOKEN_ID) break;
+        }
+
+        return generated.stream().mapToLong(Long::longValue).toArray();
+    }
+
+    /** Convenience: generate and decode to String. */
+    public String generateText(String text, int maxSteps) throws OrtException {
+        long[] tokenIds = generate(text, maxSteps);
+        return tokenizer.decode(tokenIds);
+    }
+
+    /**
+     * Route a query SID to item SID.
+     * This is the core Stage 2 operation: querySID → itemSID.
+     */
+    public String routeQuerySidToItemSid(String querySid) throws OrtException {
+        long[] tokenIds = generate(querySid, 64);
+        // Filter out special tokens ([CLS]=101, [SEP]=102, [PAD]=0)
+        // and keep only SID tokens (<a_xxx>, <b_xxx>, etc.)
+        List<Long> sidTokens = new ArrayList<>();
+        for (long id : tokenIds) {
+            if (id > 102) {  // non-special tokens
+                sidTokens.add(id);
+            }
+        }
+        long[] filtered = sidTokens.stream().mapToLong(Long::longValue).toArray();
+        return tokenizer.decode(filtered).replace(" ", "");
+    }
+
     // ==================== Spring Boot CLI ====================
 
     @Override
@@ -219,6 +279,14 @@ public class BartONNXInference implements CommandLineRunner, AutoCloseable {
         int[] result = new int[k];
         for (int i = 0; i < k; i++) result[i] = indices[i];
         return result;
+    }
+
+    private int argmax(float[] array) {
+        int best = 0;
+        for (int i = 1; i < array.length; i++) {
+            if (array[i] > array[best]) best = i;
+        }
+        return best;
     }
 
     private String tokenToStr(long id) {
