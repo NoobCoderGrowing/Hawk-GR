@@ -51,9 +51,9 @@ public class EndToEndDemo {
             System.out.printf("%n  Query: \"%s\"%n", query);
 
             // Step 1: NER
-            List<NerClient.NerEntity> entities = ner.extract(query);
+            List<NerEntity> entities = ner.extract(query);
             System.out.println("    NER entities:");
-            for (NerClient.NerEntity e : entities) {
+            for (NerEntity e : entities) {
                 System.out.printf("      %s: %s%n", e.type(), e.span());
             }
 
@@ -74,7 +74,7 @@ public class EndToEndDemo {
 
         // 3. Reserved slot test
         System.out.println("\n[5] Reserved slot routing");
-        List<NerClient.NerEntity> ent = ner.extract("小米上衣休闲风");
+        List<NerEntity> ent = ner.extract("小米上衣休闲风");
         String baseSid = kae.encode(
             ent.stream().map(e -> e.type() + ":" + e.span()).collect(Collectors.toList()));
         String withReserved = KaeEncoder.setReservedSlot(baseSid, 'd', 2000);

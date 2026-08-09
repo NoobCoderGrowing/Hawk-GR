@@ -28,12 +28,12 @@ public class NerTest {
             };
 
             for (String text : cases) {
-                List<NerClient.NerEntity> entities = ner.extract(text);
+                List<NerEntity> entities = ner.extract(text);
                 System.out.printf("  \"%s\"%n", text);
                 if (entities.isEmpty()) {
                     System.out.println("    (no entities)");
                 } else {
-                    for (NerClient.NerEntity e : entities) {
+                    for (NerEntity e : entities) {
                         System.out.printf("    → %s: %s%n", e.type(), e.span());
                     }
                 }

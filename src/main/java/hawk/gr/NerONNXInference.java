@@ -94,7 +94,7 @@ public class NerONNXInference implements AutoCloseable {
      * @param text input text e.g. "小米黑色手机壳"
      * @return list of entities with type, span, and probability
      */
-    public List<NerClient.NerEntity> extract(String text) throws OrtException {
+    public List<NerEntity> extract(String text) throws OrtException {
         // 1. Tokenize
         Encoding encoding = tokenizer.encode(text);
         long[] tokenIds = encoding.getIds();
@@ -225,8 +225,8 @@ public class NerONNXInference implements AutoCloseable {
      * Schema: B-begin, I-inside, E-end, S-single, O-outside.
      * Skips special tokens like [CLS], [SEP], [PAD], [UNK].
      */
-    private List<NerClient.NerEntity> bioToEntities(String[] tokens, int[] bestPath, int seqLen) {
-        List<NerClient.NerEntity> entities = new ArrayList<>();
+    private List<NerEntity> bioToEntities(String[] tokens, int[] bestPath, int seqLen) {
+        List<NerEntity> entities = new ArrayList<>();
 
         int i = 0;
         while (i < seqLen) {
@@ -247,7 +247,7 @@ public class NerONNXInference implements AutoCloseable {
 
             if ("S".equals(prefix)) {
                 // Single-token entity
-                entities.add(new NerClient.NerEntity(type, tokens[i], 0.0));
+                entities.add(new NerEntity(type, tokens[i], 0.0));
                 i++;
             } else if ("B".equals(prefix)) {
                 // Multi-token entity: B ... I ... E
@@ -268,11 +268,11 @@ public class NerONNXInference implements AutoCloseable {
                     }
                     i++;
                 }
-                entities.add(new NerClient.NerEntity(entityType, span.toString(), 0.0));
+                entities.add(new NerEntity(entityType, span.toString(), 0.0));
             } else {
                 // I or E without preceding B — treat as single, skip
                 if (!isSpecialToken(tokens[i])) {
-                    entities.add(new NerClient.NerEntity(type, tokens[i], 0.0));
+                    entities.add(new NerEntity(type, tokens[i], 0.0));
                 }
                 i++;
             }

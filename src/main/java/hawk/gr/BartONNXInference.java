@@ -166,25 +166,28 @@ public class BartONNXInference implements CommandLineRunner, AutoCloseable {
 
                     // 3. Decoder — 逐步输出每一步的 top-5 token
                     System.out.println("\n[Decoder Steps]");
-                    long tokenId = DECODER_START_TOKEN_ID;
                     List<Long> generated = new ArrayList<>();
-                    generated.add(tokenId);
+                    generated.add((long) DECODER_START_TOKEN_ID);
 
                     for (int step = 0; step < 20; step++) {  // 最多 20 步
                         long t2 = System.currentTimeMillis();
+                        // Pass FULL accumulated sequence — decoder needs
+                        // all previous tokens for causal self-attention.
+                        long[] inputSeq = generated.stream().mapToLong(Long::longValue).toArray();
                         float[][][] logits = runDecoder(
-                            new long[][]{{tokenId}}, encHidden,
+                            new long[][]{inputSeq}, encHidden,
                             new long[][]{attentionMask});
                         long t3 = System.currentTimeMillis();
 
-                        // 取 top-5
-                        float[] stepLogits = logits[0][0];
+                        // Take LAST position's logits (next-token prediction)
+                        float[] stepLogits = logits[0][logits[0].length - 1];
                         int[] top5Idx = topK(stepLogits, 5);
                         long nextToken = top5Idx[0];  // greedy
 
+                        long currentToken = generated.get(generated.size() - 1);
                         System.out.printf("  step %2d | token=%-6s (id=%d) | top-5: ",
                             step + 1,
-                            tokenToStr(tokenId), tokenId);
+                            tokenToStr(currentToken), currentToken);
                         for (int k = 0; k < 5; k++) {
                             int tid = top5Idx[k];
                             float prob = (float) Math.exp(stepLogits[tid]);
@@ -196,8 +199,7 @@ public class BartONNXInference implements CommandLineRunner, AutoCloseable {
                             System.out.println("  → 遇到 [SEP]，解码结束");
                             break;
                         }
-                        tokenId = nextToken;
-                        generated.add(tokenId);
+                        generated.add(nextToken);
                     }
 
                     // 4. 最终结果
