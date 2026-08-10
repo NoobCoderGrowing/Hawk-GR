@@ -102,6 +102,11 @@ public class KaeConfig {
     }
 
     /** Number of codebook entries across all positions. */
+    /** Get the full group → position mapping (e.g. "产品核心" → "a"). */
+    public Map<String, String> getGroupToPosition() {
+        return Collections.unmodifiableMap(groupToPosition);
+    }
+
     public int totalEntries() {
         return codebooks.values().stream().mapToInt(Map::size).sum();
     }
