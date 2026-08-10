@@ -36,33 +36,77 @@ public class RetrievalService implements AutoCloseable {
     private final Map<String, List<Long>> sidToItemIds;  // T: itemSID → [itemId, ...]
     private final Map<Long, Map<String, Object>> itemById;  // itemId → item record
 
+    /** Full constructor: load DictEncoder + BART + T-index + items. */
     public RetrievalService() throws Exception {
-        // 1. DictEncoder (pure CPU, no GPU needed)
-        System.out.print("[RetrievalService] Loading DictEncoder...");
-        long t0 = System.currentTimeMillis();
-        this.dictEncoder = new DictEncoder();
-        System.out.printf(" %,d patterns, %,d ms%n",
-                dictEncoder.patternCount(), System.currentTimeMillis() - t0);
+        this(false);
+    }
 
-        // 2. BART model (GPU if available)
-        System.out.print("[RetrievalService] Loading BART model...");
-        t0 = System.currentTimeMillis();
-        this.bart = new BartONNXInference();
-        System.out.printf(" %,d ms%n", System.currentTimeMillis() - t0);
+    /** Lightweight constructor: load only the T-index and item details (no models). */
+    public RetrievalService(boolean indexOnly) throws Exception {
+        if (indexOnly) {
+            this.dictEncoder = null;
+            this.bart = null;
+        } else {
+            System.out.print("[RetrievalService] Loading DictEncoder...");
+            long t0 = System.currentTimeMillis();
+            this.dictEncoder = new DictEncoder();
+            System.out.printf(" %,d patterns, %,d ms%n",
+                    dictEncoder.patternCount(), System.currentTimeMillis() - t0);
 
-        // 3. Load T: SID → item IDs lookup index
+            System.out.print("[RetrievalService] Loading BART model...");
+            t0 = System.currentTimeMillis();
+            this.bart = new BartONNXInference();
+            System.out.printf(" %,d ms%n", System.currentTimeMillis() - t0);
+        }
         System.out.print("[RetrievalService] Loading SID→item index...");
-        t0 = System.currentTimeMillis();
+        long t0 = System.currentTimeMillis();
         this.sidToItemIds = loadSidToItemIds();
-        System.out.printf(" %,d SIDs, %,d ms%n",
-                sidToItemIds.size(), System.currentTimeMillis() - t0);
+        System.out.printf(" %,d SIDs, %,d ms%n", sidToItemIds.size(), System.currentTimeMillis() - t0);
 
-        // 4. Load item details
         System.out.print("[RetrievalService] Loading item details...");
         t0 = System.currentTimeMillis();
         this.itemById = loadItemDetails();
-        System.out.printf(" %,d items, %,d ms%n",
-                itemById.size(), System.currentTimeMillis() - t0);
+        System.out.printf(" %,d items, %,d ms%n", itemById.size(), System.currentTimeMillis() - t0);
+    }
+
+    /**
+     * Search using an externally-provided query SID (e.g. from NER+KAE path).
+     * Skips DictEncoder; only does BART routing + T-index lookup.
+     */
+    public Map<String, Object> searchWithQuerySid(String querySid, int k) throws Exception {
+        // BART beam search
+        List<String> itemSids = bart.routeQuerySidToItemSids(querySid, k);
+
+        // T-index lookup
+        Set<Long> seen = new HashSet<>();
+        List<Map<String, Object>> items = new ArrayList<>();
+        for (String itemSid : itemSids) {
+            List<Long> ids = sidToItemIds.get(itemSid);
+            if (ids == null) continue;
+            for (long id : ids) {
+                if (seen.add(id)) {
+                    Map<String, Object> item = itemById.get(id);
+                    if (item != null) items.add(item);
+                }
+            }
+        }
+
+        // Fallback: prefix match
+        String method;
+        if (!items.isEmpty()) {
+            method = "bart_exact";
+        } else {
+            items = prefixSearch(querySid, seen, new ArrayList<>());
+            method = items.isEmpty() ? "none" : "prefix_match";
+        }
+
+        Map<String, Object> debug = new LinkedHashMap<>();
+        debug.put("query_sid", querySid);
+        debug.put("match_method", method);
+        debug.put("bart_candidates", itemSids.size());
+        debug.put("items_found", items.size());
+        debug.put("items", items);
+        return debug;
     }
 
     /**
@@ -252,6 +296,11 @@ public class RetrievalService implements AutoCloseable {
     public void close() throws Exception {
         if (bart != null) bart.close();
     }
+
+    /** Access the SID→itemIds map for external use. */
+    public Map<String, List<Long>> getSidToItemIds() { return sidToItemIds; }
+    /** Access the itemId→item map for external use. */
+    public Map<Long, Map<String, Object>> getItemById() { return itemById; }
 
     // ---- Demo ----
     public static void main(String[] args) throws Exception {

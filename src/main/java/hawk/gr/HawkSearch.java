@@ -48,6 +48,21 @@ public class HawkSearch {
                 List<Map<String, Object>> items = (List<Map<String, Object>>) result.get("items");
                 int found = items.size();
 
+                // Show query SID and matched attributes
+                String querySid = (String) result.get("query_sid");
+                int fill = (int) result.get("query_fill");
+                @SuppressWarnings("unchecked")
+                Map<String, List<String>> attrs = (Map<String, List<String>>) result.get("query_attrs");
+
+                System.out.printf("  querySID: %s  (fill=%d)%n", querySid, fill);
+                for (String pos : new String[]{"a","b","c","d","e","f"}) {
+                    List<String> words = attrs.getOrDefault(pos, List.of());
+                    if (!words.isEmpty()) {
+                        String[] names = {"产品核心","人群代言","风格样式","功能功效","材质款式","时空场景"};
+                        int pi = pos.charAt(0) - 'a';
+                        System.out.printf("    %s(%s): %s%n", pos, names[pi], String.join(", ", words));
+                    }
+                }
                 System.out.printf("  [%d result%s, %dms, %s]%n",
                         found, found == 1 ? "" : "s", elapsed, result.get("match_method"));
 
