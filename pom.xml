@@ -24,10 +24,10 @@
   </properties>
 
   <dependencies>
-    <!-- Source: https://mvnrepository.com/artifact/com.microsoft.onnxruntime/onnxruntime -->
+    <!-- ONNX Runtime with GPU (CUDA) support; falls back to CPU if no GPU -->
     <dependency>
       <groupId>com.microsoft.onnxruntime</groupId>
-      <artifactId>onnxruntime</artifactId>
+      <artifactId>onnxruntime_gpu</artifactId>
       <version>1.26.0</version>
     </dependency>
 

@@ -60,10 +60,9 @@ public class NerONNXInference implements AutoCloseable {
     }
 
     public NerONNXInference(Path modelDir) throws Exception {
-        // ——— ONNX session ———
+        // ——— ONNX session (GPU with CPU fallback) ———
         env = OrtEnvironment.getEnvironment();
-        OrtSession.SessionOptions opts = new OrtSession.SessionOptions();
-        opts.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.BASIC_OPT);
+        OrtSession.SessionOptions opts = OnnxUtils.createSessionOptions();
         this.session = env.createSession(
             modelDir.resolve("bert_encoder.onnx").toString(), opts);
 

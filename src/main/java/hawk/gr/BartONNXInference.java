@@ -31,8 +31,7 @@ public class BartONNXInference implements CommandLineRunner, AutoCloseable {
         tokenizer = HuggingFaceTokenizer.newInstance(dir.resolve("tokenizer.json"));
 
         env = OrtEnvironment.getEnvironment();
-        OrtSession.SessionOptions opts = new OrtSession.SessionOptions();
-        opts.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.BASIC_OPT);
+        OrtSession.SessionOptions opts = OnnxUtils.createSessionOptions();
 
         encoderSession = env.createSession(dir.resolve("bart_encoder.onnx").toString(), opts);
         decoderSession = env.createSession(dir.resolve("bart_decoder.onnx").toString(), opts);
