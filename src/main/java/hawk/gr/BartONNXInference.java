@@ -103,21 +103,118 @@ public class BartONNXInference implements CommandLineRunner, AutoCloseable {
     }
 
     /**
-     * Route a query SID to item SID.
+     * Route a query SID to item SID (greedy).
      * This is the core Stage 2 operation: querySID → itemSID.
      */
     public String routeQuerySidToItemSid(String querySid) throws OrtException {
         long[] tokenIds = generate(querySid, 64);
-        // Filter out special tokens ([CLS]=101, [SEP]=102, [PAD]=0)
-        // and keep only SID tokens (<a_xxx>, <b_xxx>, etc.)
+        return decodeSidTokens(tokenIds);
+    }
+
+    /**
+     * Beam-search: route a query SID to top-K item SIDs.
+     * Uses unconstrained beam search over the SID token alphabet.
+     *
+     * @param querySid query SID string e.g. "<a_579><b_0><c_534>..."
+     * @param k        number of item SID candidates to return
+     * @return top-K item SID strings, sorted by beam score descending
+     */
+    public List<String> routeQuerySidToItemSids(String querySid, int k) throws OrtException {
+        // Encoder
+        Encoding encoding = tokenizer.encode(querySid);
+        long[] inputIds = pad(encoding.getIds());
+        long[] encMask = pad(encoding.getAttentionMask());
+        float[][][] encHidden = runEncoder(
+            new long[][]{inputIds}, new long[][]{encMask});
+
+        // Beam: each beam = {tokenIds[], logProb, done}
+        List<Beam> beams = new ArrayList<>();
+        beams.add(new Beam(new long[]{DECODER_START_TOKEN_ID}, 0.0, false));
+
+        int vocabSize = 0; // will be set on first decoder step
+
+        for (int step = 0; step < 6; step++) {  // SID is exactly 6 tokens
+            List<Beam> candidates = new ArrayList<>();
+
+            for (Beam beam : beams) {
+                if (beam.done) {
+                    candidates.add(beam);
+                    continue;
+                }
+
+                float[][][] logits = runDecoder(
+                    new long[][]{beam.tokens}, encHidden, new long[][]{encMask});
+                float[] stepLogits = logits[0][logits[0].length - 1];
+
+                if (vocabSize == 0) vocabSize = stepLogits.length;
+
+                // Top-N expansion per beam
+                int expandN = Math.min(k * 4, vocabSize);
+                int[] topN = topK(stepLogits, expandN);
+
+                for (int tokenId : topN) {
+                    double tokenLogProb = Math.log(Math.max(softmaxSingle(stepLogits, tokenId), 1e-12));
+                    long[] newTokens = Arrays.copyOf(beam.tokens, beam.tokens.length + 1);
+                    newTokens[newTokens.length - 1] = tokenId;
+                    double newScore = beam.score + tokenLogProb;
+                    boolean done = (tokenId == EOS_TOKEN_ID);
+                    candidates.add(new Beam(newTokens, newScore, done));
+                }
+            }
+
+            // Keep top-K beams
+            candidates.sort((a, b) -> Double.compare(b.score, a.score));
+            int keep = Math.min(k, candidates.size());
+            beams = new ArrayList<>(candidates.subList(0, keep));
+
+            // If all beams hit EOS, stop early
+            if (beams.stream().allMatch(b -> b.done)) break;
+        }
+
+        // Convert beams to SID strings, deduplicate
+        List<String> results = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (Beam beam : beams) {
+            String sid = decodeSidTokens(beam.tokens);
+            if (!sid.isEmpty() && seen.add(sid)) {
+                results.add(sid);
+            }
+        }
+        return results;
+    }
+
+    /** Decode token IDs to SID string, filtering special tokens. */
+    private String decodeSidTokens(long[] tokenIds) {
         List<Long> sidTokens = new ArrayList<>();
         for (long id : tokenIds) {
-            if (id > 102) {  // non-special tokens
-                sidTokens.add(id);
-            }
+            if (id > 102) sidTokens.add(id);
         }
         long[] filtered = sidTokens.stream().mapToLong(Long::longValue).toArray();
         return tokenizer.decode(filtered).replace(" ", "");
+    }
+
+    /** Beam state for beam search. */
+    private static class Beam {
+        final long[] tokens;
+        final double score;
+        final boolean done;
+
+        Beam(long[] tokens, double score, boolean done) {
+            this.tokens = tokens; this.score = score; this.done = done;
+        }
+    }
+
+    /** Softmax for a single token index. */
+    private static double softmaxSingle(float[] logits, int idx) {
+        double maxLogit = Double.NEGATIVE_INFINITY;
+        for (float v : logits) {
+            if (v > maxLogit) maxLogit = v;
+        }
+        double sum = 0.0;
+        for (float v : logits) {
+            sum += Math.exp(v - maxLogit);
+        }
+        return Math.exp(logits[idx] - maxLogit) / sum;
     }
 
     // ==================== Spring Boot CLI ====================
