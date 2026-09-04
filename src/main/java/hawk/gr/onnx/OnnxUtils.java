@@ -1,4 +1,4 @@
-package hawk.gr;
+package hawk.gr.onnx;
 
 import ai.onnxruntime.OrtEnvironment;
 import ai.onnxruntime.OrtException;

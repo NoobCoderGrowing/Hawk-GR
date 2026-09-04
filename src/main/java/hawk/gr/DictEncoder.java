@@ -1,5 +1,9 @@
 package hawk.gr;
 
+import hawk.gr.ac.AhoCorasickMatcher;
+import hawk.gr.kae.KaeConfig;
+import hawk.gr.kae.KaeEncoder;
+
 import java.io.IOException;
 import java.util.*;
 

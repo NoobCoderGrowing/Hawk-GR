@@ -1,4 +1,4 @@
-package hawk.gr;
+package hawk.gr.onnx;
 
 import ai.djl.huggingface.tokenizers.Encoding;
 import ai.djl.huggingface.tokenizers.HuggingFaceTokenizer;

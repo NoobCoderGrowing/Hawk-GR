@@ -63,7 +63,7 @@
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-maven-plugin</artifactId>
         <configuration>
-          <mainClass>hawk.gr.BartONNXInference</mainClass>
+          <mainClass>hawk.gr.web.Application</mainClass>
         </configuration>
       </plugin>
     </plugins>

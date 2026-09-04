@@ -1,4 +1,4 @@
-package hawk.gr;
+package hawk.gr.kae;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;

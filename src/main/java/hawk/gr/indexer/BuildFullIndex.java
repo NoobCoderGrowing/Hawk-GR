@@ -1,4 +1,6 @@
-package hawk.gr;
+package hawk.gr.indexer;
+
+import hawk.gr.DictEncoder;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -25,7 +27,7 @@ import java.util.*;
  * Item details keep ONLY id/title/sid (brand/seller/category dropped per user decision),
  * keeping startup heap ~2-3GB for 6.6M items.
  *
- * Usage: {@code java -Xmx6g -cp target/classes:$(cat /tmp/cp.txt) hawk.gr.BuildFullIndex}
+ * Usage: {@code java -Xmx6g -cp target/classes:$(cat /tmp/cp.txt) hawk.gr.indexer.BuildFullIndex}
  */
 public class BuildFullIndex {
 
