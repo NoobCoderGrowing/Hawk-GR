@@ -19,13 +19,13 @@ public class KaeConfig {
     private static final String BASE = "kae/";
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    // ECOM6 group → list of NER prefixes
+    // Group → list of NER prefixes
     private final Map<String, List<String>> groupToPrefixes;
-    // NER prefix → ECOM6 group
+    // NER prefix → group
     private final Map<String, String> prefixToGroup;
-    // ECOM6 group → codebook position (a-f)
+    // Group → codebook position (a-h)
     private final Map<String, String> groupToPosition;
-    // Position (a-f) → codebook (attribute value → index)
+    // Position (a-h) → codebook (attribute value → index)
     private final Map<String, Map<String, Integer>> codebooks;
     // Position order
     private final List<String> positions;
@@ -33,6 +33,11 @@ public class KaeConfig {
     private final int emptySlot;
     private final int normalMin, normalMax;
     private final int reservedMin, reservedMax;
+    // Per-position core SID ceiling (a: 2189, b: 1330, ...) — reserved range for a
+    // position is (sidMax, sidMax + reservedPerPos]; positions share a global
+    // normal/reserved range for backward compatibility (max sidMax governs it).
+    private final Map<String, Integer> sidMax;
+    private final int reservedPerPos;
 
     public KaeConfig() throws IOException {
         // Load main config
@@ -46,6 +51,8 @@ public class KaeConfig {
         this.normalMax = (int) ((List<Integer>) config.get("normal_range")).get(1);
         this.reservedMin = (int) ((List<Integer>) config.get("reserved_range")).get(0);
         this.reservedMax = (int) ((List<Integer>) config.get("reserved_range")).get(1);
+        this.sidMax = readIntMap(config, "sid_max");
+        this.reservedPerPos = (int) config.get("reserved_per_pos");
 
         // Build reverse mapping: group → prefixes
         this.groupToPrefixes = new LinkedHashMap<>();
@@ -53,15 +60,15 @@ public class KaeConfig {
             groupToPrefixes.computeIfAbsent(e.getValue(), k -> new ArrayList<>()).add(e.getKey());
         }
 
-        // Load codebooks for each group
+        // Load codebooks for each position (noise entries filtered out — see
+        // cleanCodebook: single ASCII letters/digits and pure-symbol strings
+        // are dropped so they can't pollute SIDs).
         this.codebooks = new LinkedHashMap<>();
-        for (Map.Entry<String, String> e : groupToPosition.entrySet()) {
-            String group = e.getKey();
-            String pos = e.getValue();
+        for (String pos : positions) {
             Map<String, Integer> cb = loadJson(
-                    BASE + "codebook_" + group + ".json",
+                    BASE + "codebook_" + pos + ".json",
                     new TypeReference<Map<String, Integer>>() {});
-            codebooks.put(pos, cb);
+            codebooks.put(pos, cleanCodebook(cb));
         }
     }
 
@@ -72,7 +79,7 @@ public class KaeConfig {
         return prefixToGroup.getOrDefault(nerPrefix, null);
     }
 
-    /** Map an ECOM6 group to its codebook position (a-f). */
+    /** Map a group to its codebook position (a-h). */
     public String groupToPosition(String group) {
         return groupToPosition.get(group);
     }
@@ -83,7 +90,48 @@ public class KaeConfig {
         return cb != null ? cb.get(attrValue) : null;
     }
 
-    /** The CANONICAL position order (a-f). */
+    /** The noise-filtered codebook for a position (a-h). */
+    public Map<String, Integer> codebook(String pos) {
+        return codebooks.get(pos);
+    }
+
+    /**
+     * Drop noise entries from a raw codebook so they can't pollute SIDs:
+     * <ul>
+     *   <li>single ASCII letters/digits — e.g. {@code "t"→647} in 材质款式 matched
+     *       the bare "t" inside "T恤" and produced a bogus e_647;</li>
+     *   <li>pure symbol/emoji strings with no letters or digits — e.g. "🐠", "￥",
+     *       "++++" — never a meaningful attribute.</li>
+     * </ul>
+     * Single CJK characters (白/黑) and multi-char words (13 pro, v8) are kept.
+     */
+    static Map<String, Integer> cleanCodebook(Map<String, Integer> cb) {
+        Map<String, Integer> clean = new LinkedHashMap<>();
+        for (Map.Entry<String, Integer> e : cb.entrySet()) {
+            if (!isNoiseEntry(e.getKey())) {
+                clean.put(e.getKey(), e.getValue());
+            }
+        }
+        return clean;
+    }
+
+    private static boolean isNoiseEntry(String key) {
+        if (key == null || key.isEmpty()) return true;
+        // Single ASCII letter or digit
+        if (key.length() == 1) {
+            char c = key.charAt(0);
+            if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) {
+                return true;
+            }
+        }
+        // Pure symbols/emoji — no letters and no digits anywhere
+        for (int i = 0; i < key.length(); i++) {
+            if (Character.isLetterOrDigit(key.charAt(i))) return false;
+        }
+        return true;
+    }
+
+    /** The CANONICAL position order (a-h). */
     public List<String> positions() { return positions; }
 
     public int emptySlot() { return emptySlot; }
@@ -92,8 +140,23 @@ public class KaeConfig {
     public int reservedMin() { return reservedMin; }
     public int reservedMax() { return reservedMax; }
 
+    /** Core (non-reserved) SID ceiling for one position, e.g. "a" → 2189. */
+    public int sidMax(String pos) { return sidMax.getOrDefault(pos, normalMax); }
+    /** First reserved slot for a position: sidMax(pos)+1. */
+    public int reservedMin(String pos) { return sidMax(pos) + 1; }
+    /** Last reserved slot for a position: sidMax(pos)+reservedPerPos. */
+    public int reservedMax(String pos) { return sidMax(pos) + reservedPerPos; }
+    /** Number of reserved slots per position. */
+    public int reservedPerPos() { return reservedPerPos; }
+
+    /** True if idx falls in the global reserved range (derived from the max sidMax). */
     public boolean isReservedSlot(int idx) {
         return idx >= reservedMin && idx <= reservedMax;
+    }
+
+    /** True if idx falls in position {@code pos}'s reserved range. */
+    public boolean isReservedSlot(String pos, int idx) {
+        return idx >= reservedMin(pos) && idx <= reservedMax(pos);
     }
 
     /** Format a SID token string: {@code <pos_idx>} */
@@ -116,6 +179,11 @@ public class KaeConfig {
     @SuppressWarnings("unchecked")
     private static Map<String, String> readStringMap(Map<String, Object> config, String key) {
         return (Map<String, String>) config.get(key);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Integer> readIntMap(Map<String, Object> config, String key) {
+        return (Map<String, Integer>) config.get(key);
     }
 
     private static <T> T loadJson(String resourcePath, TypeReference<T> typeRef) throws IOException {

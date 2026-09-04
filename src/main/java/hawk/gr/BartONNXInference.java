@@ -115,7 +115,11 @@ public class BartONNXInference implements CommandLineRunner, AutoCloseable {
      * Beam-search: route a query SID to top-K item SIDs.
      * Uses unconstrained beam search over the SID token alphabet.
      *
-     * @param querySid query SID string e.g. "<a_579><b_0><c_534>..."
+     * <p>内部 beam 宽度取 {@code max(k, 3)}：宽度 1 即贪心（每步 argmax），无法比较多条前缀、
+     * 拿不到累计最优；设下限 3 后 k=1 也按整条序列累计概率搜索，返回累计最优的单条，
+     * 与 k≥2 看到的最优路径一致（代价是 k=1 的 decoder 调用数从 1 条变 3 条/步）。
+     *
+     * @param querySid query SID string e.g. "&lt;a_579&gt;&lt;b_0&gt;&lt;c_534&gt;..."
      * @param k        number of item SID candidates to return
      * @return top-K item SID strings, sorted by beam score descending
      */
@@ -131,9 +135,14 @@ public class BartONNXInference implements CommandLineRunner, AutoCloseable {
         List<Beam> beams = new ArrayList<>();
         beams.add(new Beam(new long[]{DECODER_START_TOKEN_ID}, 0.0, false));
 
+        // 内部搜索宽度下限 3：k=1 时也做真正的 beam 搜索（非贪心），按累计概率取最优
+        int beamWidth = Math.max(k, 3);
+
         int vocabSize = 0; // will be set on first decoder step
 
-        for (int step = 0; step < 6; step++) {  // SID is exactly 6 tokens
+        // 模型输出约定 [SEP]→[CLS]→a b c d e f g h→[SEP]：第 1 步生成 [CLS]，
+        // 所以 8 个 SID token 要 10 步才够（CLS + 8 SID + EOS）。
+        for (int step = 0; step < 10; step++) {
             List<Beam> candidates = new ArrayList<>();
 
             for (Beam beam : beams) {
@@ -149,7 +158,7 @@ public class BartONNXInference implements CommandLineRunner, AutoCloseable {
                 if (vocabSize == 0) vocabSize = stepLogits.length;
 
                 // Top-N expansion per beam
-                int expandN = Math.min(k * 4, vocabSize);
+                int expandN = Math.min(beamWidth * 4, vocabSize);
                 int[] topN = topK(stepLogits, expandN);
 
                 for (int tokenId : topN) {
@@ -162,19 +171,20 @@ public class BartONNXInference implements CommandLineRunner, AutoCloseable {
                 }
             }
 
-            // Keep top-K beams
+            // Keep top-beamWidth beams
             candidates.sort((a, b) -> Double.compare(b.score, a.score));
-            int keep = Math.min(k, candidates.size());
+            int keep = Math.min(beamWidth, candidates.size());
             beams = new ArrayList<>(candidates.subList(0, keep));
 
             // If all beams hit EOS, stop early
             if (beams.stream().allMatch(b -> b.done)) break;
         }
 
-        // Convert beams to SID strings, deduplicate
+        // Convert beams to SID strings, deduplicate, cap at top-k (beams 按 score 降序)
         List<String> results = new ArrayList<>();
         Set<String> seen = new HashSet<>();
         for (Beam beam : beams) {
+            if (results.size() >= k) break;
             String sid = decodeSidTokens(beam.tokens);
             if (!sid.isEmpty() && seen.add(sid)) {
                 results.add(sid);

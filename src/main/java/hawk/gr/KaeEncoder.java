@@ -126,23 +126,23 @@ public class KaeEncoder {
 
     // ---- utility ----
 
-    /** Format indices array to SID string. */
+    /** Format indices array to SID string (8 positions a-h). */
     public static String formatSid(int[] indices) {
         StringBuilder sb = new StringBuilder();
-        String[] positions = {"a", "b", "c", "d", "e", "f"};
+        String[] positions = {"a", "b", "c", "d", "e", "f", "g", "h"};
         for (int i = 0; i < indices.length && i < positions.length; i++) {
             sb.append(KaeConfig.formatToken(positions[i], indices[i]));
         }
         return sb.toString();
     }
 
-    /** Parse a SID string to indices array. */
+    /** Parse a SID string to indices array (8 positions a-h; missing → 0). */
     public static int[] parseSid(String sid) {
-        int[] indices = new int[6];
+        int[] indices = new int[8];
         java.util.regex.Matcher m = java.util.regex.Pattern
-                .compile("<[a-f]_(\\d+)>").matcher(sid);
+                .compile("<[a-h]_(\\d+)>").matcher(sid);
         int i = 0;
-        while (m.find() && i < 6) {
+        while (m.find() && i < 8) {
             indices[i++] = Integer.parseInt(m.group(1));
         }
         return indices;

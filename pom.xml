@@ -47,6 +47,13 @@
       <artifactId>gson</artifactId>
       <version>2.11.0</version>
     </dependency>
+
+    <!-- JLine — 交互式 CLI 行编辑（方向键移动光标等） -->
+    <dependency>
+      <groupId>org.jline</groupId>
+      <artifactId>jline</artifactId>
+      <version>3.26.3</version>
+    </dependency>
   </dependencies>
 
   <build>

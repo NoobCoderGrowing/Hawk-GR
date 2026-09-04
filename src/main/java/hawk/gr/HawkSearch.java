@@ -1,5 +1,9 @@
 package hawk.gr;
 
+import org.jline.reader.*;
+import org.jline.terminal.Terminal;
+import org.jline.terminal.TerminalBuilder;
+
 import java.util.*;
 
 /**
@@ -32,10 +36,21 @@ public class HawkSearch {
 
         int bartK = Integer.parseInt(System.getenv().getOrDefault("BART_K", "1"));
 
-        Scanner scanner = new Scanner(System.in);
+        // JLine line reader — provides arrow-key cursor editing even when
+        // stdin is not a real TTY (degrades to a simple readLine on pipes).
+        Terminal terminal = TerminalBuilder.builder().system(true).build();
+        LineReader reader = LineReaderBuilder.builder()
+                .terminal(terminal)
+                .build();
         while (true) {
-            System.out.print("> ");
-            String query = scanner.nextLine().trim();
+            String query;
+            try {
+                query = reader.readLine("> ").trim();
+            } catch (UserInterruptException e) {
+                continue;   // Ctrl-C: discard current line, keep looping
+            } catch (EndOfFileException e) {
+                break;      // Ctrl-D: exit
+            }
             if (query.isEmpty()) continue;
             if ("exit".equalsIgnoreCase(query) || "quit".equalsIgnoreCase(query)) break;
 
@@ -90,6 +105,7 @@ public class HawkSearch {
         }
 
         service.close();
+        terminal.close();
         System.out.println("Bye!");
     }
 }

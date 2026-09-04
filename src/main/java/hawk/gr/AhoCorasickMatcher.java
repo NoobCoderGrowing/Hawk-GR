@@ -60,7 +60,7 @@ public class AhoCorasickMatcher {
     }
 
     private final Node root = new Node();
-    private final String[] positions = {"a","b","c","d","e","f"};
+    private final String[] positions = {"a","b","c","d","e","f","g","h"};
     private final Map<String,Integer> posToIdx = new HashMap<>();
     private boolean built = false;
     private int patternCount = 0;
