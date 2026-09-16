@@ -270,26 +270,7 @@ HAWK_GR_SKIP_FRONTEND=1 ./run.sh          # 只要 API，不要页面
 
 ---
 
-## 7. REST API
-
-| 分组 | 端点 | 说明 |
-|---|---|---|
-| 检索 | `GET /api/search?q=&k=` | 检索（返回 `searchDebug` 全量 debug 负载）|
-| | `GET /api/search-by-sid?sid=&k=` | 按 querySID 路由（供 RouteEditor）|
-| | `GET /api/search-by-itemsid?sid=` | item SID 模式直接通配查商品（不走 BART）|
-| | `GET /api/health` | 健康探针 |
-| 码本 | `GET /api/lookup?word=` | 词 → 各位置 index |
-| | `GET /api/suggest?word=&pos=` | 位置内前缀补全 |
-| | `GET /api/reverse?pos=&idx=` | index → 词（反向）|
-| | `GET /api/sid-words?sid=` / `GET /api/slot-words?slot=` | SID / 槽位反查词 |
-| | `GET /api/item-preview?title=` | 标题自动编码为 itemSID |
-| 保留槽 | `POST /api/reserved-preview` / `POST /api/reserved-bind` | 预览 / 注入并绑定（新建商品或绑定已有）|
-| | `GET /api/reserved-list` / `POST /api/reserved-remove` | 当前注入列表 / 删除注入 |
-| 坑位 | `POST /api/slot-add` / `POST /api/slot-remove` / `GET /api/slot-list` | 关键词坑位增删查 |
-
----
-
-## 8. 已知限制与注意事项
+## 7. 已知限制与注意事项
 
 - **解码无槽位约束**：BART beam 未加 validity 约束，实测约 **0.36%** 候选 SID 畸形（槽位错乱/
   重复码）。解法的形态是「固定槽位 FSM 硬掩码」（每步只允许对应位置的连续 id band），
@@ -302,7 +283,7 @@ HAWK_GR_SKIP_FRONTEND=1 ./run.sh          # 只要 API，不要页面
 
 ---
 
-## 9. 论文对照
+## 8. 论文对照
 
 | 论文（OneRetrieval/KAE） | 本项目 |
 |---|---|
