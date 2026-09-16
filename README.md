@@ -123,6 +123,10 @@ scripts/fetch_assets.sh index      # 只取 T 索引 / 商品明细
 FORCE=1 scripts/fetch_assets.sh    # 已存在也重新解压覆盖
 ```
 
+> `./run.sh` 启动前会自动做同样的检查（见 §5）：缺哪个补哪个，**拉取失败直接拒绝启动**而不是让应用
+> 死在缺文件上。离线、或正要重建索引时用 `HAWK_GR_SKIP_ASSETS=1` 跳过检查。只有默认的 `model/`
+> 目录会被自动补齐；`BART_MODEL_DIR` 指向别处时不予干涉。
+
 也可以手动下载两个 `.tar.gz`，在仓库根目录 `tar -xzf` —— 包内是相对路径，解压即落位：
 
 | 落地路径 | 大小 | 用途 |
@@ -149,6 +153,7 @@ FORCE=1 scripts/fetch_assets.sh    # 已存在也重新解压覆盖
 # 1) 后端（首次会加载 AC 自动机 + BART ONNX + 两个大 JSON，约数十秒）
 mvn -q compile
 ./run.sh hawk.gr.web.Application          # 默认 http://localhost:8080
+                                          # 缺权重/索引时 run.sh 会先自动下载（§4）
 
 # 2) 前端
 cd frontend && npm install
@@ -162,6 +167,9 @@ BART_MODEL_DIR=/path/to/weights ./run.sh hawk.gr.web.Application
 ./run.sh hawk.gr.HawkSearch               # 交互式检索
 ./run.sh hawk.gr.ItemSidBuilder           # 批量建 items_with_sid.json + T
 ./run.sh hawk.gr.RebuildSids              # 重建 SID 索引
+
+# 5) 跳过启动前的资产检查（离线环境 / 正在重建索引）
+HAWK_GR_SKIP_ASSETS=1 ./run.sh hawk.gr.web.Application
 ```
 
 前端页面（`frontend/src/App.jsx` 四个 tab）：
@@ -251,7 +259,7 @@ click 组里仅 6% 的「强」目标表现优于 order；拖垮整体的是那 
 | §3.2 码本 / reserved slot | `kae_config.json` + `codebook_{a..h}.json`，每位置 30 reserved 槽 |
 | §3.3 贪心合并 + 正则器 | `data/merge_formula.md`（组级 IL 定义与论文略有差异，已记录）|
 | §3.4.4 reserved 注入 | `/api/reserved-bind`（运行时注册 + 编码后覆写，不重训）|
-| 生成式检索（beam 512 + top-5 物化）| `eval_paper_hr.py` 协议复现；本机小规模用 beam10/20/50 |
+| 生成式检索（beam 512 + top-5 物化）| 按该协议离线评估（见 §7）；本机小规模用 beam10/20/50 |
 | 8 组 ECOM 属性 | a–h 八组，见 §2.1 |
 
 参考：`claude/KAE.pdf`、`recall_eval_report.md`、`data/merge_formula.md`。
