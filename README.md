@@ -85,7 +85,6 @@ SID 形如 `<a_1609><b_673><c_1051><d_0><e_0><f_0><g_0><h_0>`，固定 8 位、�
 | Maven | 3.6+（Spring Boot 3.4 要求）| 3.8.7 |
 | Node.js | 18+（Vite 5 要求）| v22.23.2 |
 | npm | 9+ | 10.9.8 |
-| Python | 3.10+（仅离线评估用；仓库自带 `venv/`）| 3.12.3 |
 | GPU | 可选，非必需 | 无（纯 CPU）|
 
 **Java 依赖**（`pom.xml` 自动拉取）：Spring Boot 3.4.0、ONNX Runtime **GPU** 1.26.0
