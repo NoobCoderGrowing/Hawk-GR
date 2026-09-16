@@ -38,13 +38,50 @@ Java（Spring Boot + ONNX Runtime）提供在线检索服务与 REST API，React
 3. 结果列表截断至 `MAX_RESULTS=500`。
 
 论文口径（精确回表）则是：候选 SID **逐字精确**查 T，每个 SID 物化前若干商品，按 beam 序拼接。
-两种语义的差异见 [§7 评估](#7-召回评估)。
+两种语义的差异见 [§2 评估](#2-召回评估)。
 
 ---
 
-## 2. 核心概念
+## 2. 召回评估
 
-### 2.1 8 槽位 SID
+> 本节整合 `recall_eval_report.md`（日期 2026-09-06）。
+
+### 2.1 item 粒度 HR@10/100/350
+
+**Order**
+
+| Order HR@K | BM25 | docT5query | DPR(向量) | 论文 OneRetrieval | 本模型 item_pop5 | 本模型 sid |
+|---|---|---|---|---|---|---|
+| @10 | 0.0344 | 0.0423 | 0.0612 | 0.1846 | **0.2060** | 0.2672 |
+| @100 | 0.1230 | 0.1640 | 0.2605 | 0.4225 | **0.4650** | 0.5056 |
+| @350 | 0.2215 | 0.2926 | 0.4346 | 0.5482 | **0.5670** | 0.6204 |
+
+**Click**
+
+| Click HR@K | BM25 | docT5query | DPR(向量) | 论文 OneRetrieval | 本模型 item_pop5 | 本模型 sid |
+|---|---|---|---|---|---|---|
+| @10 | 0.0583 | 0.0754 | 0.0956 | 0.2034 | 0.1514 | 0.2130 |
+| @100 | 0.1798 | 0.2314 | 0.3340 | 0.4602 | 0.3530 | 0.4342 |
+| @350 | 0.2914 | 0.3699 | 0.5027 | 0.6055 | 0.4512 | 0.5496 |
+
+要点：
+- **Order**：本模型 item_pop5 在三档全部最高——超 BM25 5.9×/3.8×/2.6×、超 DPR 3.4×/1.8×/1.3×，
+  并高出论文 OneRetrieval 2.1/4.3/1.9pt（sid 级更高）。侧向印证路由与码本有效。
+- **Click**：明显强于 BM25/docT5query，但 @350 略低于 DPR（0.451 vs 0.503）、低于论文 OR 约 15pt；
+  sid 级到 0.550。深度不足主要来自 top-5 物化在拥挤 click SID 上的损失。
+
+### 2.2 为什么 click 表现差（失败归因）
+
+**决定性证据：click 差的根源不在解码、不在 top-5 物化，而在测试目标本身的性质。**
+
+click 组里仅 6% 的「强」目标表现优于 order；拖垮整体的是那 94% 纯 click 商品——被点过却从不转化，
+在全量交互里几乎没有统计足迹，查询属性→商品 SID 的共现信号极弱。
+
+---
+
+## 3. 核心概念
+
+### 3.1 8 槽位 SID
 
 SID 形如 `<a_1609><b_673><c_1051><d_0><e_0><f_0><g_0><h_0>`，固定 8 位、每位置一个离散码，
 `0` 表示「未指定/无该属性」（query 与 item 都可稀疏）。
@@ -63,20 +100,20 @@ SID 形如 `<a_1609><b_673><c_1051><d_0><e_0><f_0><g_0><h_0>`，固定 8 位、�
 来源：`src/main/resources/kae/kae_config.json` 与 `codebook_{a..h}.json`（词 → index）。
 \* 为码本文件条目数（原始值；`KaeConfig.cleanCodebook` 加载时会过滤单字母/纯符号噪声词）。
 
-### 2.2 保留槽（reserved slot）
+### 3.2 保留槽（reserved slot）
 
 每个位置保留 `sid_max+1 … sid_max+30`（共 30 个 / 位置、全站 240 个）为 **reserved 槽**，
 训练时不绑词，上线后可把新趋势词注入到某个 reserved 槽并绑定商品集合——**不重训模型即可生效**
 （`/api/reserved-bind`，对应论文 §3.2/§3.4.4 的 P1/P2/P3）。
 
-### 2.3 T 索引
+### 3.3 T 索引
 
 `sid_to_items.json`：SID → 商品 id 列表（约 **315k 行 / 445k 商品**）。
 `items_with_sid.json`：商品 → 标题/品牌/卖家/类目/itemSID。
 
 ---
 
-## 3. 系统环境要求
+## 4. 系统环境要求
 
 | 组件 | 要求 | 本机实测 |
 |---|---|---|
@@ -90,18 +127,15 @@ SID 形如 `<a_1609><b_673><c_1051><d_0><e_0><f_0><g_0><h_0>`，固定 8 位、�
 **Java 依赖**（`pom.xml` 自动拉取）：Spring Boot 3.4.0、ONNX Runtime **GPU** 1.26.0
 （无 GPU 时 `OnnxUtils` 自动回退 CPU）、DJL HuggingFace tokenizers 0.36.0、Gson 2.11.0、JLine 3.26.3。
 
-**Python 依赖**（`venv/` 已装）：`numpy 2.5.1`、`onnxruntime 1.28.0`、`tokenizers 0.22.2`、
-`torch 2.13.0`、`transformers 5.14.1`、`scipy 1.18.1`、`scikit-learn 1.9.0`。
-
 **GPU（可选）**：有 NVIDIA GPU + CUDA 12 时，把 CUDA 12 运行库放到项目根的 `lib/cuda12/`，
 `OnnxUtils` 启动时自动预加载并优先使用 CUDA，找不到则打印提示并回退 CPU——**无需手动配置
 `LD_LIBRARY_PATH`**。本机无 GPU，全部评估在 CPU 上完成（`OMP_NUM_THREADS=8`）。
 
 **网络**：首次构建需联网（Maven 依赖、`npm install`）；模型权重与 T 索引**不入库**，
-首次运行 `./run.sh` 会自动从 GitHub Releases 下载（约 875 MB，见 §4），前端产物缺失时也会
-自动 `npm ci + npm run build`（见 §5）。
+首次运行 `./run.sh` 会自动从 GitHub Releases 下载（约 875 MB，见 §5），前端产物缺失时也会
+自动 `npm ci + npm run build`（见 §6）。
 
-## 4. 获取模型与索引
+## 5. 获取模型与索引
 
 权重与索引**不在仓库里**：单个 `.onnx` 就有 344 MB / 576 MB，远超 GitHub 的 100 MB 单文件硬上限
 （想入库只能走 git-lfs，而 LFS 免费额度只有 1 GB 存储 + 1 GB/月下行，且**下载者消耗的是你的额度**，
@@ -121,7 +155,7 @@ scripts/fetch_assets.sh index      # 只取 T 索引 / 商品明细
 FORCE=1 scripts/fetch_assets.sh    # 已存在也重新解压覆盖
 ```
 
-> `./run.sh` 启动前会自动做同样的检查（见 §5）：缺哪个补哪个，**拉取失败直接拒绝启动**而不是让应用
+> `./run.sh` 启动前会自动做同样的检查（见 §6）：缺哪个补哪个，**拉取失败直接拒绝启动**而不是让应用
 > 死在缺文件上。离线、或正要重建索引时用 `HAWK_GR_SKIP_ASSETS=1` 跳过检查。只有默认的 `model/`
 > 目录会被自动补齐；`BART_MODEL_DIR` 指向别处时不予干涉。
 
@@ -145,11 +179,11 @@ FORCE=1 scripts/fetch_assets.sh    # 已存在也重新解压覆盖
 
 ---
 
-## 5. 快速开始
+## 6. 快速开始
 
 ```bash
 # 1) 一条命令拉起后端 + 页面
-#    run.sh 依次做：mvn 编译 → 缺权重/索引则自动下载（§4）→ 缺页面则 npm ci + npm run build
+#    run.sh 依次做：mvn 编译 → 缺权重/索引则自动下载（§5）→ 缺页面则 npm ci + npm run build
 ./run.sh                                  # = hawk.gr.web.Application，http://localhost:8080
                                           # （首次加载 AC 自动机 + BART ONNX + 两个大 JSON，约 20 秒）
 ./stop.sh                                 # 停止：等 :8080 真正释放后才返回
@@ -157,7 +191,7 @@ FORCE=1 scripts/fetch_assets.sh    # 已存在也重新解压覆盖
 # 2) 前端开发（改 UI 时代码热更，页面在 :5173，/api 由 Vite 代理到 :8080）
 cd frontend && npm run dev                # 前台进程，Ctrl-C 停止（stop.sh 不碰 node）
 
-# 3) 指向其他权重目录（默认 model/，见 §4）
+# 3) 指向其他权重目录（默认 model/，见 §5）
 BART_MODEL_DIR=/path/to/weights ./run.sh
 
 # 4) 命令行工具
@@ -185,7 +219,7 @@ HAWK_GR_SKIP_FRONTEND=1 ./run.sh          # 只要 API，不要页面
 
 ---
 
-## 6. REST API
+## 7. REST API
 
 | 分组 | 端点 | 说明 |
 |---|---|---|
@@ -204,43 +238,6 @@ HAWK_GR_SKIP_FRONTEND=1 ./run.sh          # 只要 API，不要页面
 
 ---
 
-## 7. 召回评估
-
-> 本节整合 `recall_eval_report.md`（日期 2026-09-06）。
-
-### 7.1 item 粒度 HR@10/100/350
-
-**Order**
-
-| Order HR@K | BM25 | docT5query | DPR(向量) | 论文 OneRetrieval | 本模型 item_pop5 | 本模型 sid |
-|---|---|---|---|---|---|---|
-| @10 | 0.0344 | 0.0423 | 0.0612 | 0.1846 | **0.2060** | 0.2672 |
-| @100 | 0.1230 | 0.1640 | 0.2605 | 0.4225 | **0.4650** | 0.5056 |
-| @350 | 0.2215 | 0.2926 | 0.4346 | 0.5482 | **0.5670** | 0.6204 |
-
-**Click**
-
-| Click HR@K | BM25 | docT5query | DPR(向量) | 论文 OneRetrieval | 本模型 item_pop5 | 本模型 sid |
-|---|---|---|---|---|---|---|
-| @10 | 0.0583 | 0.0754 | 0.0956 | 0.2034 | 0.1514 | 0.2130 |
-| @100 | 0.1798 | 0.2314 | 0.3340 | 0.4602 | 0.3530 | 0.4342 |
-| @350 | 0.2914 | 0.3699 | 0.5027 | 0.6055 | 0.4512 | 0.5496 |
-
-要点：
-- **Order**：本模型 item_pop5 在三档全部最高——超 BM25 5.9×/3.8×/2.6×、超 DPR 3.4×/1.8×/1.3×，
-  并高出论文 OneRetrieval 2.1/4.3/1.9pt（sid 级更高）。侧向印证路由与码本有效。
-- **Click**：明显强于 BM25/docT5query，但 @350 略低于 DPR（0.451 vs 0.503）、低于论文 OR 约 15pt；
-  sid 级到 0.550。深度不足主要来自 top-5 物化在拥挤 click SID 上的损失。
-
-### 7.2 为什么 click 表现差（失败归因）
-
-**决定性证据：click 差的根源不在解码、不在 top-5 物化，而在测试目标本身的性质。**
-
-click 组里仅 6% 的「强」目标表现优于 order；拖垮整体的是那 94% 纯 click 商品——被点过却从不转化，
-在全量交互里几乎没有统计足迹，查询属性→商品 SID 的共现信号极弱。
-
----
-
 ## 8. 已知限制与注意事项
 
 - **解码无槽位约束**：BART beam 未加 validity 约束，实测约 **0.36%** 候选 SID 畸形（槽位错乱/
@@ -248,7 +245,7 @@ click 组里仅 6% 的「强」目标表现优于 order；拖垮整体的是那 
   成本近似为零；`querySID` 本身还可进一步做「只在有效商品码集合内」的约束。
 - **大 beam 的显存/内存**：CPU 批量路由时活跃行数 `R ≈ chunk × beam`，需保持 `R ≤ ~640`
   （beam20 用 chunk≤32、beam40/50 用 chunk≤12），否则约 14GB RSS 触发 OOM。
-- **click 目标噪声**：见 §7.2，纯 click 商品无转化信号，不应作为检索优化目标。
+- **click 目标噪声**：见 §2.2，纯 click 商品无转化信号，不应作为检索优化目标。
 - **全量规模**：当前 `sid_to_items.json` 约 315k 行；全量级重建见 `indexer/BuildFullIndex`。
 - **reserved 槽**：每位置 30 个，注入后走前缀匹配 + 绑定集合的确定性命道路径（跳过 BART）。
 
@@ -261,7 +258,7 @@ click 组里仅 6% 的「强」目标表现优于 order；拖垮整体的是那 
 | §3.2 码本 / reserved slot | `kae_config.json` + `codebook_{a..h}.json`，每位置 30 reserved 槽 |
 | §3.3 贪心合并 + 正则器 | `data/merge_formula.md`（组级 IL 定义与论文略有差异，已记录）|
 | §3.4.4 reserved 注入 | `/api/reserved-bind`（运行时注册 + 编码后覆写，不重训）|
-| 生成式检索（beam 512 + top-5 物化）| 按该协议离线评估（见 §7）；本机小规模用 beam10/20/50 |
-| 8 组 ECOM 属性 | a–h 八组，见 §2.1 |
+| 生成式检索（beam 512 + top-5 物化）| 按该协议离线评估（见 §2）；本机小规模用 beam10/20/50 |
+| 8 组 ECOM 属性 | a–h 八组，见 §3.1 |
 
 参考：`claude/KAE.pdf`、`recall_eval_report.md`、`data/merge_formula.md`。

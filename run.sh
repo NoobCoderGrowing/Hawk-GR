@@ -2,7 +2,7 @@
 # Run Hawk-GR Java apps. CUDA GPU is auto-detected via OnnxUtils.
 # Compiles first (mvn -q compile), so Java edits and a rebuilt frontend are picked up.
 #
-# Runtime assets (BART weights + T index) are gitignored — see README §4. If any
+# Runtime assets (BART weights + T index) are gitignored — see README §5. If any
 # of them is missing, they are fetched from GitHub Releases via
 # scripts/fetch_assets.sh before the app starts (resumable + sha256 verified).
 #
@@ -14,7 +14,7 @@
 #   ./run.sh hawk.gr.HawkSearch          # interactive CLI search
 #   ./run.sh hawk.gr.ItemSidBuilder      # rebuild items_with_sid.json + T index
 #
-# Before starting, it also: fetches missing weights/index (README §4), and builds
+# Before starting, it also: fetches missing weights/index (README §5), and builds
 # the UI when src/main/resources/static/index.html is absent.
 #
 # Env:
@@ -57,7 +57,7 @@ if [ "${#NEED[@]}" -gt 0 ]; then
 
   if [ -z "${HAWK_GR_SKIP_ASSETS:-}" ]; then
     if ! scripts/fetch_assets.sh; then
-      echo "!! fetch failed (offline? release not published?) — see README §4" >&2
+      echo "!! fetch failed (offline? release not published?) — see README §5" >&2
     fi
     # Fail loudly here rather than letting the app die later on a missing file.
     for f in "${NEED[@]}"; do
