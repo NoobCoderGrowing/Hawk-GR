@@ -98,8 +98,9 @@ SID 形如 `<a_1609><b_673><c_1051><d_0><e_0><f_0><g_0><h_0>`，固定 8 位、�
 `OnnxUtils` 启动时自动预加载并优先使用 CUDA，找不到则打印提示并回退 CPU——**无需手动配置
 `LD_LIBRARY_PATH`**。本机无 GPU，全部评估在 CPU 上完成（`OMP_NUM_THREADS=8`）。
 
-**网络**：首次构建需联网（Maven 依赖、`npm install`）；模型（`model/`、`model2/`）
-与索引（`src/main/resources/*.json`）已在仓库内，无需下载。
+**网络**：首次构建需联网（Maven 依赖、`npm install`）；模型权重与 T 索引**不入库**，
+首次运行 `./run.sh` 会自动从 GitHub Releases 下载（约 875 MB，见 §4），前端产物缺失时也会
+自动 `npm ci + npm run build`（见 §5）。
 
 ## 4. 获取模型与索引
 
@@ -148,27 +149,31 @@ FORCE=1 scripts/fetch_assets.sh    # 已存在也重新解压覆盖
 ## 5. 快速开始
 
 ```bash
-# 1) 后端（首次会加载 AC 自动机 + BART ONNX + 两个大 JSON，约数十秒）
-mvn -q compile
-./run.sh hawk.gr.web.Application          # 默认 http://localhost:8080
-                                          # 缺权重/索引时 run.sh 会先自动下载（§4）
+# 1) 一条命令拉起后端 + 页面
+#    run.sh 依次做：mvn 编译 → 缺权重/索引则自动下载（§4）→ 缺页面则 npm ci + npm run build
+./run.sh                                  # = hawk.gr.web.Application，http://localhost:8080
+                                          # （首次加载 AC 自动机 + BART ONNX + 两个大 JSON，约 20 秒）
+./stop.sh                                 # 停止：等 :8080 真正释放后才返回
 
-# 2) 前端
-cd frontend && npm install
-npm run dev                               # 开发（Vite 代理 /api → :8080）
-npm run build                             # 构建进 src/main/resources/static，单服务托管
+# 2) 前端开发（改 UI 时代码热更，页面在 :5173，/api 由 Vite 代理到 :8080）
+cd frontend && npm run dev                # 前台进程，Ctrl-C 停止（stop.sh 不碰 node）
 
 # 3) 指向其他权重目录（默认 model/，见 §4）
-BART_MODEL_DIR=/path/to/weights ./run.sh hawk.gr.web.Application
+BART_MODEL_DIR=/path/to/weights ./run.sh
 
 # 4) 命令行工具
 ./run.sh hawk.gr.HawkSearch               # 交互式检索
 ./run.sh hawk.gr.ItemSidBuilder           # 批量建 items_with_sid.json + T
 ./run.sh hawk.gr.RebuildSids              # 重建 SID 索引
 
-# 5) 跳过启动前的资产检查（离线环境 / 正在重建索引）
-HAWK_GR_SKIP_ASSETS=1 ./run.sh hawk.gr.web.Application
+# 5) 跳过启动前的检查
+HAWK_GR_SKIP_ASSETS=1 ./run.sh            # 离线 / 正在重建索引
+HAWK_GR_SKIP_FRONTEND=1 ./run.sh          # 只要 API，不要页面
 ```
+
+> `run.sh` **只在页面缺失时才构建前端**，改了 UI 源码后要自己重跑 `cd frontend && npm run build`
+> （构建产物 `src/main/resources/static/` 不入库，由 `mvn compile` 拷进 `target/classes` 后由
+> Spring Boot 在 :8080 单服务托管）。
 
 前端页面（`frontend/src/App.jsx` 四个 tab）：
 

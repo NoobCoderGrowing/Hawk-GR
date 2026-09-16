@@ -1,29 +1,34 @@
 #!/bin/bash
 # Run Hawk-GR Java apps. CUDA GPU is auto-detected via OnnxUtils.
+# Compiles first (mvn -q compile), so Java edits and a rebuilt frontend are picked up.
 #
 # Runtime assets (BART weights + T index) are gitignored — see README §4. If any
 # of them is missing, they are fetched from GitHub Releases via
 # scripts/fetch_assets.sh before the app starts (resumable + sha256 verified).
 #
 # Usage:
-#   ./run.sh <MainClass>
+#   ./run.sh [MainClass]                 # default: hawk.gr.web.Application
 #
 # Examples:
-#   ./run.sh hawk.gr.web.Application     # REST API + web UI
+#   ./run.sh                             # REST API + web UI on :8080
 #   ./run.sh hawk.gr.HawkSearch          # interactive CLI search
 #   ./run.sh hawk.gr.ItemSidBuilder      # rebuild items_with_sid.json + T index
+#
+# Before starting, it also: fetches missing weights/index (README §4), and builds
+# the UI when src/main/resources/static/index.html is absent.
 #
 # Env:
 #   BART_MODEL_DIR=<dir>       weights dir (default model/); auto-fetch only applies
 #                              to the default, point it elsewhere and manage it yourself
 #   HAWK_GR_SKIP_ASSETS=1      skip the asset check entirely (offline / index rebuilds)
+#   HAWK_GR_SKIP_FRONTEND=1    skip the UI build check (backend/API only)
 #   HAWK_GR_TAG=<tag>          release tag to download from (default assets-v1)
 
 set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
-MAIN_CLASS="${1:-hawk.gr.HawkSearch}"
+MAIN_CLASS="${1:-hawk.gr.web.Application}"
 shift || true
 
 # ---- check runtime assets ----------------------------------------------------
@@ -62,4 +67,35 @@ if [ "${#NEED[@]}" -gt 0 ]; then
   fi
 fi
 
-exec mvn exec:java -Dexec.mainClass="$MAIN_CLASS" -q "$@"
+# ---- ensure a frontend build exists ------------------------------------------
+# The UI is a separate Vite app; its output lands in src/main/resources/static
+# (gitignored) and Spring Boot serves it on :8080. Build it here so a fresh clone
+# is usable with a single command. An existing build is left alone — re-run
+# `npm run build` in frontend/ after editing the UI, or delete static/index.html.
+WEBAPP="src/main/resources/static/index.html"
+if [ ! -f "$WEBAPP" ] && [ -z "${HAWK_GR_SKIP_FRONTEND:-}" ]; then
+  echo "-- frontend build missing ($WEBAPP), building"
+  if ! command -v npm >/dev/null 2>&1; then
+    echo "!! npm not found — skipping the UI build; :8080 will serve no page" >&2
+  else
+    if [ ! -d frontend/node_modules ]; then
+      echo "   installing frontend deps (~42 MB, first time only)"
+      if [ -f frontend/package-lock.json ]; then
+        (cd frontend && npm ci)   || echo "!! npm ci failed" >&2
+      else
+        (cd frontend && npm install) || echo "!! npm install failed" >&2
+      fi
+    fi
+    if (cd frontend && npm run build); then
+      echo "-- frontend built → served by Spring Boot on :8080"
+    else
+      echo "!! frontend build failed — :8080 will have no page (the API still works)" >&2
+    fi
+  fi
+fi
+
+# exec:java runs the plugin goal directly and does not walk the lifecycle, so
+# compile explicitly first: a fresh clone has no target/classes, and otherwise
+# changed Java — or a rebuilt frontend (static/ → target/classes/static) — would
+# silently run stale.
+exec mvn -q compile exec:java -Dexec.mainClass="$MAIN_CLASS" "$@"
