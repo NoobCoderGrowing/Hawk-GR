@@ -142,6 +142,7 @@ public class RetrievalService implements AutoCloseable {
             if (items.size() >= MAX_RESULTS) break;
             int[] masked = maskItemSidToQuery(qIdx, KaeEncoder.parseSid(itemSid));
             String maskedSid = KaeEncoder.formatSid(masked);
+            if (countNonZero(masked) == 0) continue;   // BART 生成值全 0 → 归 0 掩码也是全 0 = 全库通配噪音，不参与检索
             if (!maskedSeen.add(maskedSid)) continue;  // 同一归 0 后的模式只查一次
             maskedSids.add(maskedSid);
             Map<String, Object> r = wildcardLookup(masked, MAX_RESULTS, seen);
@@ -207,6 +208,7 @@ public class RetrievalService implements AutoCloseable {
             if (results.size() >= MAX_RESULTS) break;
             int[] masked = maskItemSidToQuery(qIdx, KaeEncoder.parseSid(itemSid));
             String maskedSid = KaeEncoder.formatSid(masked);
+            if (countNonZero(masked) == 0) continue;   // BART 生成值全 0 → 归 0 掩码也是全 0 = 全库通配噪音，不参与检索
             if (!maskedSeen.add(maskedSid)) continue;  // 同一归 0 后的模式只查一次
             @SuppressWarnings("unchecked")
             List<Map<String, Object>> found =
@@ -276,6 +278,7 @@ public class RetrievalService implements AutoCloseable {
             if (items.size() >= MAX_RESULTS) break;
             int[] masked = maskItemSidToQuery(qIdx, KaeEncoder.parseSid(itemSid));
             String maskedSid = KaeEncoder.formatSid(masked);
+            if (countNonZero(masked) == 0) continue;   // BART 生成值全 0 → 归 0 掩码也是全 0 = 全库通配噪音，不参与检索
             if (!maskedSeen.add(maskedSid)) continue;  // 同一归 0 后的模式只查一次
             maskedSids.add(maskedSid);
             Map<String, Object> r = wildcardLookup(masked, MAX_RESULTS, seen);

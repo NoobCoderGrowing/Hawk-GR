@@ -26,7 +26,8 @@ public class BartONNXInference implements CommandLineRunner, AutoCloseable {
     private static final int FIXED_SEQ_LEN = 64;
 
     public BartONNXInference() throws Exception {
-        Path dir = Paths.get("model");
+        // 模型目录可被环境变量 BART_MODEL_DIR 覆盖（默认 model/），便于切换权重对比
+        Path dir = Paths.get(System.getenv().getOrDefault("BART_MODEL_DIR", "model"));
 
         tokenizer = HuggingFaceTokenizer.newInstance(dir.resolve("tokenizer.json"));
 

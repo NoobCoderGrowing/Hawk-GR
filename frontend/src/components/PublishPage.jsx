@@ -3,14 +3,6 @@ import ItemCard from './ItemCard.jsx'
 import { fetchSearch, reservedPreview, reservedBind, reservedList, reservedRemove } from '../api.js'
 import { POS_NAMES, POS_ORDER, reservedRange, RESERVED_PER_POS } from '../constants.js'
 
-const OPTIONAL_FIELDS = [
-  { key: 'brand_name', label: '品牌', ph: '如 泡泡玛特' },
-  { key: 'seller_name', label: '卖家', ph: '选填' },
-  { key: 'category_level1_name', label: '一级类目', ph: '如 玩具' },
-  { key: 'category_level2_name', label: '二级类目', ph: '选填' },
-  { key: 'category_level3_name', label: '三级类目', ph: '选填' },
-]
-
 // 保留槽区间按位置动态计算：reservedRange(pos) = (sid_max[pos], sid_max[pos]+30]
 
 /**
@@ -24,10 +16,8 @@ export default function PublishPage() {
   const [pos, setPos] = useState('b')
   const [slotInput, setSlotInput] = useState('')
   const [preview, setPreview] = useState(null)
-  const [newItem, setNewItem] = useState({
-    item_title: '', brand_name: '', seller_name: '',
-    category_level1_name: '', category_level2_name: '', category_level3_name: '',
-  })
+  // 绑定新商品只需填商品标题；品牌/卖家/类目由后端按标题解析或留空
+  const [newItem, setNewItem] = useState({ item_title: '' })
   const [itemIds, setItemIds] = useState('')
   const [result, setResult] = useState(null)
   const [verify, setVerify] = useState(null)
@@ -256,16 +246,6 @@ export default function PublishPage() {
             onChange={(e) => setField('item_title', e.target.value)}
           />
         </label>
-        {OPTIONAL_FIELDS.map((f) => (
-          <label className="p-field" key={f.key}>
-            <span className="p-label">{f.label}</span>
-            <input
-              value={newItem[f.key]}
-              placeholder={f.ph}
-              onChange={(e) => setField(f.key, e.target.value)}
-            />
-          </label>
-        ))}
         <div className="p-actions">
           <button
             className="route-btn"

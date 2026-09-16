@@ -48,25 +48,20 @@ export default function DebugPanel({ debug }) {
       {debug.bart_sids?.length > 0 && (
         <div className="bart-sids-block">
           <div className="bart-sids-label">
-            BART 生成的商品 SID → 归 0 通配查找
-            <span className="bart-hits-tip">×N = 通配命中的商品数（0 位不约束）</span>
+            BART 原始生成（候选 SID）
+            <span className="bart-hits-tip">×N = 该 SID 在索引中精确命中的商品数</span>
           </div>
           <div className="bart-sids">
-            {(debug.bart_masked_sids?.length ? debug.bart_masked_sids : debug.bart_sids).map((sid, i) => {
-              const n = debug.bart_masked_hits?.[sid] ?? debug.bart_candidate_hits?.[sid] ?? 0
+            {debug.bart_sids.map((sid, i) => {
+              const n = debug.bart_candidate_hits?.[sid] ?? 0
               return (
                 <code key={i} className={`bart-sid ${n > 0 ? 'hit' : ''}`}>
                   <span className="bart-sid-idx">{i + 1}.</span> {sid}
-                  {n > 0 ? ` ×${n}` : '（通配无匹配）'}
+                  {n > 0 ? ` ×${n}` : '（索引中无此 SID）'}
                 </code>
               )
             })}
           </div>
-          {debug.bart_masked_sids?.length > 0 && (
-            <div className="bart-raw-sids">
-              BART 原始生成：{debug.bart_sids.join('  ')}
-            </div>
-          )}
         </div>
       )}
 
