@@ -312,4 +312,5 @@ HAWK_GR_SKIP_FRONTEND=1 ./run.sh          # 只要 API，不要页面
 | 生成式检索（beam 512 + top-5 物化）| 按该协议离线评估（见 §2）；本机小规模用 beam10/20/50 |
 | 8 组 ECOM 属性 | a–h 八组，见 §3.1 |
 
-参考：`claude/KAE.pdf`、`recall_eval_report.md`、[`data/merge_formula.md`](data/merge_formula.md)。
+参考：`claude/KAE.pdf`、`recall_eval_report.md`、[`data/merge_formula.md`](data/merge_formula.md)、
+[`thread.md`](thread.md)（复现工作复盘：实体合并 → 槽设计 → 四阶 SFT → AC 自动机）。
